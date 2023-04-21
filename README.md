@@ -11,6 +11,6 @@ Right in the middle of the GUI window you will notice four knobs: they are the h
 
 Do you need some help to boost your imagination? We also added three buttons to help you get started with three different distortion pre-sets, inspired by the sound of three famous guitarists: we have the "Overdrive Effect", that we associated to Stevie Ray Vaughan; then there is the pure "Distortion" effect, characteristic of the AC/DC band; and then we have the toughest of them all, the "Fuzz Effect", and we linked it to Matt Bellamy from the band Muse.
 
-When you have understood the functioning of the Disteacher you can switch to "I can do it" Mode just by clicking on the top right button! There you may see the distortion effect acting on the input of your computer microphone or even of your external soundcard, if you wish.
+When you have understood the functioning of the Disteacher you can switch to "I can do it" mode just by clicking on the top right button! There you may see the distortion effect acting on the input of your computer microphone or even of your external soundcard, if you wish.
 
 So, feel free to experiment and have fun!
