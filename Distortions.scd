@@ -1,10 +1,9 @@
-// Server.default.options.outDevice_("CABLE Input (VB-Audio Virtual C");
-// Server.default.options.inDevice = nil;
-s.reboot;
+s.boot;
 
 (
 
 ~outBus = 0; // tefault output bus is set to 0
+~microphoneBus = 0; // Selection of the proper input bus for a microphone
 ~soundcardBus = Bus.audio(s); // Selection of the proper input bus for playing an instrument (guitar)
 
 // General initializations
@@ -14,9 +13,6 @@ s.reboot;
 ~thr = 1;
 ~outGain = 1.0;
 ~freq = 20;
-~tone = 100;
-~rq = 2;
-~db = 10;
 ~analogPos = 0;
 ~analogNeg = 0;
 
@@ -27,7 +23,7 @@ s.reboot;
 ~voiceBuffer = Buffer.read(s, "C:/Users/Gabriele/Documents/MEGA/Magistrale/Music and Acoustic Engineering/CMLS/HW1/Voice_mono.mp3");
 ~alabamaBuffer = Buffer.read(s, "C:/Users/Gabriele/Documents/MEGA/Magistrale/Music and Acoustic Engineering/CMLS/HW1/Sweet Home Alabama.mp3");
 
-~inputBus = Bus.audio(s); // The bus in which the selected input is routing in order to be manipulated by the plugin
+~inputBus = Bus.audio(s); // The bus in which the selected input is routed in order to be manipulated by the plugin
 
 // Definition of the different functions
 
@@ -36,7 +32,7 @@ s.reboot;
 ~voice = {PlayBuf.ar(1, ~voiceBuffer.bufnum)};
 ~bass = {PlayBuf.ar(1, ~bassBuffer.bufnum)};
 ~alabama = {PlayBuf.ar(1, ~alabamaBuffer.bufnum)};
-~mic = {SoundIn.ar(0, 1)};
+~mic = {SoundIn.ar(~microphoneBus, 1)};
 ~soundcard = {In.ar(~soundcardBus, 1)};
 
 // The input will be choosen by indexing in this assay
@@ -55,6 +51,7 @@ s.reboot;
 // Hyperbolic tangent transfer function
 
 ~tanhFunction = {
+
 	// Apply a transfer function to scale the input signal with the input gain knob value
 
 	~inTf.waveFill({arg x, old, i; 2*x-1}); // 0 < x_axis < 513    -1 < y_axis < 1
@@ -83,7 +80,6 @@ s.reboot;
 	~tf = ~tf * ~outGain;
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
 	Shaper.ar(~myBuffer, ~gainedInputSignal);
-	// MidEQ.ar(in: Shaper.ar(~myBuffer, ~gainedInputSignal, 1, 0), freq: ~tone, rq: ~rq, db: ~db);
 };
 
 // Foldback transfer function
@@ -108,7 +104,6 @@ s.reboot;
 	~tf = ~tf * ~outGain;
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
 	Shaper.ar(~myBuffer, ~gainedInputSignal);
-	// MidEQ.ar(in: Shaper.ar(~myBuffer, ~gainedInputSignal, 1, 0), freq: ~tone, rq: ~rq, db: ~db);
 };
 
 // Quadratic transfer function
@@ -122,13 +117,13 @@ s.reboot;
 	~tf.waveFill({arg x, old, i;
 		if((old>0),
 			{// positive
-				if((old<(~thr/(~gain+~analogPos))),
+				if((old<((~thr-~analogPos)/(~gain+~analogPos))),
 					{// linear
 						old*(~gain+~analogPos)
 					},
-					{if((old<((2-~thr)/(~gain+~analogPos))),
+					{if((old<((2-(~thr-~analogPos))/(~gain+~analogPos))),
 						{// quatratic
-							((((old-((2-~thr)/(~gain+~analogPos))).squared)*(~gain+~analogPos)*(~gain+~analogPos))/(4*(~thr-1)))+1
+							((((old-((2-(~thr-~analogPos))/(~gain+~analogPos))).squared)*(~gain+~analogPos)*(~gain+~analogPos))/(4*((~thr-~analogPos)-1)))+1
 						},
 						{// clip
 							1
@@ -136,13 +131,13 @@ s.reboot;
 				})
 			},
 			{// negative
-				if((old>((-1)*~thr/(~gain+~analogNeg))),
+				if((old>((-1)*(~thr+~analogNeg)/(~gain+~analogNeg))),
 					{// linear
 						old*(~gain+~analogNeg)
 					},
-					{if((old>((~thr-2)/(~gain+~analogNeg))),
+					{if((old>(((~thr+~analogNeg)-2)/(~gain+~analogNeg))),
 						{// quatratic
-							((((old-((~thr-2)/(~gain+~analogNeg))).squared)*(~gain+~analogNeg)*(~gain+~analogNeg))/(4*(1-~thr)))-1
+							((((old-(((~thr+~analogNeg)-2)/(~gain+~analogNeg))).squared)*(~gain+~analogNeg)*(~gain+~analogNeg))/(4*(1-(~thr+~analogNeg))))-1
 						},
 						{// clip
 							-1
@@ -155,7 +150,6 @@ s.reboot;
 	~tf = ~tf * ~outGain;
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
 	Shaper.ar(~myBuffer, ~gainedInputSignal);
-	// MidEQ.ar(in: Shaper.ar(~myBuffer, ~gainedInputSignal, 1, 0), freq: ~tone, rq: ~rq, db: ~db);
 };
 
 // Choose a mode - Initial PopUp
@@ -353,6 +347,8 @@ w.onClose = {(
 	~outputScope.stop;
 	~xyScope.stop;
 	~inputBus.free;
+	~outBus.free;
+	~microphoneBus.free;
 	~soundcardBus.free;
 	~sinusoidSig.free;
 	~guitarSig.free;
@@ -361,13 +357,15 @@ w.onClose = {(
 	~alabamaSig.free;
 	~micSig.free;
 	~soundcardSig.free;
+	Server.freeAll;
+	Server.killAll;
 )};
 
 // Analog button
 
 // Every time you select the analog mode, two new random nombers are added to the gain value in the transfer function, one to the positive part and the other to the negative part, in order to simulate the behaviour of a more realistic analog circuit
 
-~analogButton = Button(w, Rect(500, 63, 70, 30))
+~analogButton = Button(w, Rect(260, 100, 80, 40))
         .states_([
             ["Analog", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
             ["Analog", Color.white, Color.new255(red: 47, green: 72, blue: 88, alpha: 255)],
@@ -393,19 +391,16 @@ w.onClose = {(
 
 i = ControlSpec.new(minval: 0.0, maxval: 10.0);
 g = ControlSpec.new(minval: 0.0, maxval: 10.0);
-t = ControlSpec.new(minval: 10, maxval: 22000);
 p = ControlSpec.new(minval: 0.0, maxval: 1.0);
 o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 
 ~k0_inGain = EZKnob(w, Rect(30, 95, 80, 80), "Input gain", i, initVal: 1, layout: 'vert2');
 ~k1_gain = EZKnob(w, Rect(145,95, 80, 80), "Gain", g, initVal: 1, layout: 'vert2');
-~k2_tone = EZKnob(w, Rect(260, 95, 80, 80), "Tone", t, initVal: 100, layout: 'vert2');
 ~k3_disThr = EZKnob(w, Rect(375,95, 80, 80), "Harshness",  p, initVal: 1, layout: 'vert2');
 ~k4_output_level = EZKnob(w, Rect(490, 95, 80, 80), "Output", o, initVal: 1, layout: 'vert2');
 
 ~k0_inGain.font = f;
 ~k1_gain.font = f;
-~k2_tone.font = f;
 ~k3_disThr.font = f;
 ~k4_output_level.font = f;
 
@@ -421,11 +416,9 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus), 1, 0);
 	if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 		~outputSignal = ~quadraticFunction.value;
-		// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 	}, {
 		if((~dystTypeMenu.value == 2), {
 			~outputSignal = ~tanhFunction.value;
-			// ~outputSignal = MidEQ.ar(in: ~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 		}, {
 			~outputSignal = ~foldbackFunction.value;
 		});
@@ -444,32 +437,9 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	~gain = knob.value;
 	if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 		~outputSignal = ~quadraticFunction.value;
-		// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 	}, {
 		if((~dystTypeMenu.value == 2), {
 			~outputSignal = ~tanhFunction.value;
-			// ~outputSignal = MidEQ.ar(in: ~~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
-		}, {
-			~outputSignal = ~foldbackFunction.value;
-		});
-	});
-});
-
-// The tone knob change the frequency of the bell of the equalizer
-
-~k2_tone.action_({
-	arg knob;
-	~overdriveButton.value = 0;
-	~fuzzButton.value = 0;
-	~distorsionButton.value = 0;
-	~tone = knob.value;
-	if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
-		~outputSignal = ~quadraticFunction.value;
-		// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
-	}, {
-		if((~dystTypeMenu.value == 2), {
-			~outputSignal = ~tanhFunction.value;
-			// ~outputSignal = MidEQ.ar(in: ~~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 		}, {
 			~outputSignal = ~foldbackFunction.value;
 		});
@@ -491,11 +461,9 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	});
 	if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 		~outputSignal = ~quadraticFunction.value;
-		// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 	}, {
 		if((~dystTypeMenu.value == 2), {
 			~outputSignal = ~tanhFunction.value;
-			// ~outputSignal = MidEQ.ar(in: ~~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 		}, {
 			~outputSignal = ~foldbackFunction.value;
 		});
@@ -512,11 +480,9 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	~outGain = knob.value;
 	if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 		~outputSignal = ~quadraticFunction.value;
-		// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 	}, {
 		if((~dystTypeMenu.value == 2), {
 			~outputSignal = ~tanhFunction.value;
-			// ~outputSignal = MidEQ.ar(in: ~~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 		}, {
 			~outputSignal = ~foldbackFunction.value;
 		});
@@ -555,16 +521,14 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 ~overdriveButton.action_({|me|
 	if (me.value == 1,
 		{
-			~k1_gain.value = 2; ~k2_tone.value = 500; ~k3_disThr.value = 0.3; ~k4_output_level.value = 0.8; ~distorsionButton.value = 0; ~fuzzButton.value = 0;
+			~k1_gain.value = 2; ~k3_disThr.value = 0.3; ~k4_output_level.value = 0.8; ~distorsionButton.value = 0; ~fuzzButton.value = 0;
 			~gain = ~k1_gain.value; ~thr = ~k3_disThr.value; ~outGain = ~k4_output_level.value;
 			~dystTypeMenu.value = 1;
 			if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 				~outputSignal = ~quadraticFunction.value;
-				// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 			}, {
 				if((~dystTypeMenu.value == 2), {
 					~outputSignal = ~tanhFunction.value;
-					// ~outputSignal = MidEQ.ar(in: ~~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 				}, {
 					~outputSignal = ~foldbackFunction.value;
 				});
@@ -575,16 +539,14 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 ~distorsionButton.action_({|me|
 	if (me.value == 1,
 		{
-			~k1_gain.value = 7; ~k2_tone.value = 1000; ~k3_disThr.value = 0; ~k4_output_level.value = 0.8; ~overdriveButton.value = 0; ~fuzzButton.value = 0;
+			~k1_gain.value = 7; ~k3_disThr.value = 0; ~k4_output_level.value = 0.8; ~overdriveButton.value = 0; ~fuzzButton.value = 0;
 			~gain = ~k1_gain.value; ~thr = ~k3_disThr.value; ~outGain = ~k4_output_level.value;
 			~dystTypeMenu.value = 1;
 			if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 				~outputSignal = ~quadraticFunction.value;
-				// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 			}, {
 				if((~dystTypeMenu.value == 2), {
 					~outputSignal = ~tanhFunction.value;
-					// ~outputSignal = MidEQ.ar(in: ~~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 				}, {
 					~outputSignal = ~foldbackFunction.value;
 				});
@@ -595,16 +557,14 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 ~fuzzButton.action_({|me|
 	if (me.value == 1,
 		{
-			~k1_gain.value = 9; ~k2_tone.value = 15000; ~k3_disThr.value = 0.8; ~k4_output_level.value = 0.5; ~overdriveButton.value = 0; ~distorsionButton.value = 0;
+			~k1_gain.value = 9; ~k3_disThr.value = 0.8; ~k4_output_level.value = 0.5; ~overdriveButton.value = 0; ~distorsionButton.value = 0;
 			~gain = ~k1_gain.value; ~thr = ~k3_disThr.value; ~outGain = ~k4_output_level.value;
 			~dystTypeMenu.value = 1;
 			if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 				~outputSignal = ~quadraticFunction.value;
-				// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 			}, {
 				if((~dystTypeMenu.value == 2), {
 					~outputSignal = ~tanhFunction.value;
-					// ~outputSignal = MidEQ.ar(in: ~~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 				}, {
 					~outputSignal = ~foldbackFunction.value;
 				});
@@ -645,11 +605,9 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus));
 	if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 		~outputSignal = ~quadraticFunction.value;
-		// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 	}, {
 		if((~dystTypeMenu.value == 2), {
 			~outputSignal = ~tanhFunction.value;
-			// ~outputSignal = MidEQ.ar(in: ~~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 		}, {
 			~outputSignal = ~foldbackFunction.value;
 		});
@@ -801,7 +759,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
                                                        TUTORIAL MODE
 
 • Choose one audio file from the 'Input Source' menu.
-• Switch between the three distorsion presets and change the parameters as you prefer.
+• Switch between the four distorsion presets and change the parameters as you prefer.
 • When you feel comfortable, switch to the 'I can do it' mode and try to distort some of your own sounds! Have fun!";
 ~gotItButton = Button(~tutorialw, Rect(275, 130, 50, 20));
 ~gotItButton.states_([
@@ -910,21 +868,20 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 ~knobInfoButton.action_({|butt|
 	if (butt.value==1,
 		{
-			~infow = Window("Knobs roles", Rect(left: 325, top: 500, width: 320, height: 220), false);
+			~infow = Window("Knobs roles", Rect(left: 325, top: 500, width: 320, height: 200), false);
 			~infow.background = Color.new255(red: 169, green: 211, blue: 134, alpha: 255);
 			~infow.alwaysOnTop = true;
-			~infos = StaticText(~infow, Rect(left: 10, top: 0, width: 300, height: 190));
+			~infos = StaticText(~infow, Rect(left: 10, top: 0, width: 300, height: 170));
 			~infos.string =
 			"• INPUT KNOB: set the desired input volume.
-• GAIN KNOB: this value represent the slope of the linear portion of the transfer function.
-• TONE KNOB: set the frequency filter that helps you to shape the desired sound. Set it at a low value if you want a mellower and bassy sound, set it high if you want a richer and full of highs sound.
+• GAIN KNOB: this value represent the slope of the transfer function.
 • HARSNESS KNOB: changes the shape of the quadratic portion of the transfer function. It's linked to the threashold where the linear part ends and the quadratic part starts:
     0 --> only quadratic shape
-    1 --> only linear shape (clip)
+    1 --> only linear shape (clipper)
 • OUTPUT KNOB: set the desired output volume.
-• ANALOG BUTTON: introduce asymmetrical behaviour in the transfer function, typical of real analogue circuits.";
+• ANALOG BUTTON: introduce asymmetrical behaviours in the transfer function, typical of real analogue circuits.";
 			~infow.front;
-			~gotItButton = Button(~infow, Rect(135, 192, 50, 20));
+			~gotItButton = Button(~infow, Rect(135, 172, 50, 20));
 			~gotItButton.states_([
 				["Got It"],
 				["Got It"],
