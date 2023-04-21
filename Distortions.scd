@@ -4,9 +4,10 @@ s.reboot;
 
 (
 
-// General initializations
+~outBus = 0; // tefault output bus is set to 0
+~soundcardBus = Bus.audio(s); // Selection of the proper input bus for playing an instrument (guitar)
 
-~outBus = 0;
+// General initializations
 
 ~inGain = 1.0;
 ~gain = 1;
@@ -19,15 +20,16 @@ s.reboot;
 ~analogPos = 0;
 ~analogNeg = 0;
 
+// Example sounds load
+
 ~guitarBuffer = Buffer.read(s, "C:/Users/Gabriele/Documents/MEGA/Magistrale/Music and Acoustic Engineering/CMLS/HW1/Clean guitar loop_mono.mp3");
 ~bassBuffer = Buffer.read(s, "C:/Users/Gabriele/Documents/MEGA/Magistrale/Music and Acoustic Engineering/CMLS/HW1/Bass_mono.mp3");
 ~voiceBuffer = Buffer.read(s, "C:/Users/Gabriele/Documents/MEGA/Magistrale/Music and Acoustic Engineering/CMLS/HW1/Voice_mono.mp3");
 ~alabamaBuffer = Buffer.read(s, "C:/Users/Gabriele/Documents/MEGA/Magistrale/Music and Acoustic Engineering/CMLS/HW1/Sweet Home Alabama.mp3");
 
-~soundcardBus = Bus.audio(s);
-~inputBus = Bus.audio(s);
+~inputBus = Bus.audio(s); // The bus in which the selected input is routing in order to be manipulated by the plugin
 
-// ~inputBus.scope;
+// Definition of the different functions
 
 ~sinusoid = {SinOsc.ar(~freq, 0, 1)};
 ~guitar = {PlayBuf.ar(1, ~guitarBuffer.bufnum)};
@@ -37,23 +39,35 @@ s.reboot;
 ~mic = {SoundIn.ar(0, 1)};
 ~soundcard = {In.ar(~soundcardBus, 1)};
 
+// The input will be choosen by indexing in this assay
+
 ~funcs = [~sinusoid, ~guitar, ~voice, ~bass, ~alabama, ~mic, ~soundcard];
+
+// Buffers and signals needed to compute the transfer functions
 
 ~myBuffer = Buffer.alloc(s, 1024, 1);
 ~tf = Signal.newClear(513);
 ~myInBuffer = Buffer.alloc(s, 1024, 1);
 ~inTf = Signal.newClear(513);
 
-// Arctangent transfer function??
+// Link to the GeoGebra site to better visualize the transfer functions: https://www.geogebra.org/m/x5bhsngv
 
 // Hyperbolic tangent transfer function
 
 ~tanhFunction = {
-	~inTf.waveFill({arg x, old, i; 2*x-1});
+	// Apply a transfer function to scale the input signal with the input gain knob value
+
+	~inTf.waveFill({arg x, old, i; 2*x-1}); // 0 < x_axis < 513    -1 < y_axis < 1
 	~inTf = ~inTf * ~inGain;
 	~myInBuffer.sendCollection(~inTf.asWavetableNoWrap);
-	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus), 1, 0);
-	~tf.waveFill({arg x, old, i; 2*x-1}); // 0 < x_axis < 513    -1 < y_axis < 1
+	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus));
+
+	// Apply the hyperbolic tangent transfer function using the same method as before
+
+	~tf.waveFill({arg x, old, i; 2*x-1});
+
+	// Introduce the effect of the analog button on the gain parameter
+
 	~tf.waveFill({arg x, old, i;  //    0 < x < 1    -1 < old < 1    0 < i < 512
 		if((old>0),
 			{// positive
@@ -64,11 +78,11 @@ s.reboot;
 			}
 		)
 	});
-	// ~tf = ~tf * ~gain;
 	~tf = ~tf.tanh;
+	if((~gain == 0), {~tf = ~tf * 0;}, {}); // To reduce artifacts due to the analog option
 	~tf = ~tf * ~outGain;
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
-	Shaper.ar(~myBuffer, ~gainedInputSignal, 1, 0);
+	Shaper.ar(~myBuffer, ~gainedInputSignal);
 	// MidEQ.ar(in: Shaper.ar(~myBuffer, ~gainedInputSignal, 1, 0), freq: ~tone, rq: ~rq, db: ~db);
 };
 
@@ -78,35 +92,34 @@ s.reboot;
 	~inTf.waveFill({arg x, old, i; 2*x-1});
 	~inTf = ~inTf * ~inGain;
 	~myInBuffer.sendCollection(~inTf.asWavetableNoWrap);
-	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus), 1, 0);
-	~tf.waveFill({arg x, old, i; 2*x-1}); // 0 < x_axis < 513    -1 < y_axis < 1
-	~tf.waveFill({arg x, old, i;  //    0 < x < 1    -1 < old < 1    0 < i < 512
+	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus));
+	~tf.waveFill({arg x, old, i; 2*x-1});
+	~tf.waveFill({arg x, old, i;
 		if((old>0),
 			{// positive
 				((~gain+~analogPos)*((~gain+~analogPos)*old).sin)*((-2)*(~gain+~analogPos)*old).exp
 			},
 			{// negative
-				((~gain+~analogPos)*((~gain+~analogPos)*old).sin)*(2*(~gain+~analogPos)*old).exp;
+				((~gain+~analogNeg)*((~gain+~analogNeg)*old).sin)*(2*(~gain+~analogNeg)*old).exp;
 			}
 		)
 	});
 	if((~gain == 0), {~tf = ~tf * 0;}, {});
 	~tf = ~tf * ~outGain;
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
-	Shaper.ar(~myBuffer, ~gainedInputSignal, 1, 0);
+	Shaper.ar(~myBuffer, ~gainedInputSignal);
 	// MidEQ.ar(in: Shaper.ar(~myBuffer, ~gainedInputSignal, 1, 0), freq: ~tone, rq: ~rq, db: ~db);
 };
 
 // Quadratic transfer function
 
 ~quadraticFunction = {
-	// Link to the GeoGebra site: https://www.geogebra.org/m/x5bhsngv
 	~inTf.waveFill({arg x, old, i; 2*x-1});
 	~inTf = ~inTf * ~inGain;
 	~myInBuffer.sendCollection(~inTf.asWavetableNoWrap);
-	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus), 1, 0);
-	~tf.waveFill({arg x, old, i; 2*x-1}); // 0 < x_axis < 513    -1 < y_axis < 1
-	~tf.waveFill({arg x, old, i;  //    0 < x < 1    -1 < old < 1    0 < i < 512
+	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus));
+	~tf.waveFill({arg x, old, i; 2*x-1});
+	~tf.waveFill({arg x, old, i;
 		if((old>0),
 			{// positive
 				if((old<(~thr/(~gain+~analogPos))),
@@ -141,7 +154,7 @@ s.reboot;
 	if((~gain == 0), {~tf = ~tf * 0;}, {});
 	~tf = ~tf * ~outGain;
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
-	Shaper.ar(~myBuffer, ~gainedInputSignal, 1, 0);
+	Shaper.ar(~myBuffer, ~gainedInputSignal);
 	// MidEQ.ar(in: Shaper.ar(~myBuffer, ~gainedInputSignal, 1, 0), freq: ~tone, rq: ~rq, db: ~db);
 };
 
@@ -155,11 +168,15 @@ f = Font ("Kreon", 12);
 ~initialText.string = "Welcome to DISTEACHER, choose a mode to start.";
 ~initialText.font = Font("Kreon", 16);
 
+// Actions needed to properly start the main window and the signal flow
+
 ~initialPopUp.onClose = {(
 	~k3_disThr.doAction;
 	~playButton.value = 1;
 	~playButton.doAction;
 )};
+
+// If the user choose the "Tutorial" mode...
 
 ~tutorialButtonStart = Button(~initialPopUp, Rect(50, 70, 100, 30));
 ~tutorialButtonStart.font = f;
@@ -167,14 +184,14 @@ f = Font ("Kreon", 12);
 	["Tutorial mode", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
 	["Tutorial mode", Color.white, Color.new255(red: 47, green: 72, blue: 88, alpha: 255)],
 ]);
-~tutorialButtonStart.action_({|butt|
+~tutorialButtonStart.action_({|butt| // The one in the initial window
 	if (butt.value==1,
 		{
-			w.front;
+			w.front; // w is the main window
 			~tutorialw.front;
-			~tutorialButton.value = 1;
+			~tutorialButton.value = 1; // The one in the main window
 			~initialPopUp.close;
-			~inputMenu.items_(["Sinusoid", "Guitar mp3", "Voice mp3", "Bass mp3", "Sweet Home Alabama"]);
+			~inputMenu.items_(["Sinusoid at"+~freq+"Hz", "Guitar mp3", "Voice mp3", "Bass mp3", "Sweet Home Alabama"]); // Set the input options corresponding to the tutorial mode
 			~playButton = Button(w, ~playButRect)
 			.states_([
 				["Stop", Color.white, Color.new255(red: 111, green: 69, blue: 34, alpha: 255)],
@@ -183,6 +200,7 @@ f = Font ("Kreon", 12);
 			.action_({|butt|
 				if (butt.value==1,
 					{
+						// "stop" state --> stop all the sounds
 						~sinusoidSig.free;
 						~guitarSig.free;
 						~voiceSig.free;
@@ -191,8 +209,9 @@ f = Font ("Kreon", 12);
 						~micSig.free;
 						~soundcardSig.free;
 					},
-					{if (~inputMenu.value==0,
+					{if (~inputMenu.value==0, // "play" state
 						{
+							// route (and play) the correct signal in the input bus
 							~sinusoidSig = {Out.ar(~inputBus, ~funcs.at(~inputMenu.value))}.play;
 							~guitarSig.free;
 							~voiceSig.free;
@@ -251,6 +270,8 @@ f = Font ("Kreon", 12);
 		{};
 )});
 
+// If the user choose the "I can do it" mode...
+
 ~iCanDoItButtonStart = Button(~initialPopUp, Rect(250, 70, 100, 30))
         .states_([
             ["I can do it", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
@@ -258,22 +279,22 @@ f = Font ("Kreon", 12);
         ]);
 ~iCanDoItButtonStart.font = f;
 ~iCanDoItButtonStart.value = 0;
-~iCanDoItButtonStart.action_({|butt|
+~iCanDoItButtonStart.action_({|butt| // The one in the initial window
 	if (butt.value==1,
 		{
 			w.front;
-			~iCanDoItButton.value = 1;
+			~iCanDoItButton.value = 1; // The one in the main window
 			~iCanDoItw.front;
 			~initialPopUp.close;
 			w.background = ~wColor2;
-			~inputMenu.items_(["Computer mic", "Soundcard"]);
+			~inputMenu.items_(["Computer mic", "Soundcard"]); // Update the input options
 			~playButton = Button(w, ~playButRect)
 			.states_([
 				["Stop", Color.white, Color.new255(red: 111, green: 69, blue: 34, alpha: 255)],
 				["Play", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)]
 			])
 			.action_({|butt|
-				if (butt.value==1,
+				if (butt.value==1, // Same as before...
 					{
 						~sinusoidSig.free;
 						~guitarSig.free;
@@ -290,6 +311,7 @@ f = Font ("Kreon", 12);
 							~voiceSig.free;
 							~bassSig.free;
 							~alabamaSig.free;
+							// The first 5 input options of the menu are now unavailable, so we have to add 5 to the index of the choosen input
 							~micSig = {Out.ar(~inputBus, ~funcs.at(~inputMenu.value+5))}.play;
 							~soundcardSig.free;
 						},
@@ -343,6 +365,8 @@ w.onClose = {(
 
 // Analog button
 
+// Every time you select the analog mode, two new random nombers are added to the gain value in the transfer function, one to the positive part and the other to the negative part, in order to simulate the behaviour of a more realistic analog circuit
+
 ~analogButton = Button(w, Rect(500, 63, 70, 30))
         .states_([
             ["Analog", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
@@ -350,46 +374,47 @@ w.onClose = {(
         ]);
 ~analogButton.font = f;
 ~analogButton.action_({|butt|
-	// ("analogButton:"+butt.value).postln;
 	if ((butt.value==1),
 		{
 			~analogPos = (1.0.rand.round(0.01)-1.0.rand.round(0.01))*0.1*~gain;
 			~analogNeg = (1.0.rand.round(0.01)-1.0.rand.round(0.01))*0.1*~gain;
-			~k0_inGain.doAction;
-			("AnalogPos from Button:"+~analogPos).postln;
-			("AnalogNeg from Button:"+~analogNeg).postln;
+			~k0_inGain.doAction; // To recalculate the current transfer function
 		},
 		{
 			~analogPos = 0;
 			~analogNeg = 0;
-			~k0_inGain.doAction;
+			~k0_inGain.doAction; // To recalculate the current transfer function
 		}
 )});
 
 // Knobs
+
+// Intervals for every knob
 
 i = ControlSpec.new(minval: 0.0, maxval: 10.0);
 g = ControlSpec.new(minval: 0.0, maxval: 10.0);
 t = ControlSpec.new(minval: 10, maxval: 22000);
 p = ControlSpec.new(minval: 0.0, maxval: 1.0);
 o = ControlSpec.new(minval: 0.0, maxval: 2.0);
+
 ~k0_inGain = EZKnob(w, Rect(30, 95, 80, 80), "Input gain", i, initVal: 1, layout: 'vert2');
 ~k1_gain = EZKnob(w, Rect(145,95, 80, 80), "Gain", g, initVal: 1, layout: 'vert2');
 ~k2_tone = EZKnob(w, Rect(260, 95, 80, 80), "Tone", t, initVal: 100, layout: 'vert2');
 ~k3_disThr = EZKnob(w, Rect(375,95, 80, 80), "Harshness",  p, initVal: 1, layout: 'vert2');
 ~k4_output_level = EZKnob(w, Rect(490, 95, 80, 80), "Output", o, initVal: 1, layout: 'vert2');
+
 ~k0_inGain.font = f;
 ~k1_gain.font = f;
 ~k2_tone.font = f;
 ~k3_disThr.font = f;
 ~k4_output_level.font = f;
 
+// The input gain only change the amplitude of the selected input signal
+
 ~k0_inGain.action_({
 	arg knob;
-	~overdriveButton.value = 0;
-	~fuzzButton.value = 0;
-	~distorsionButton.value = 0;
 	~inGain = knob.value;
+	// Changing the input gain we have to recalculate the gained input signal and the output one
 	~inTf.waveFill({arg x, old, i; 2*x-1});
 	~inTf = ~inTf * ~inGain;
 	~myInBuffer.sendCollection(~inTf.asWavetableNoWrap);
@@ -400,18 +425,22 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	}, {
 		if((~dystTypeMenu.value == 2), {
 			~outputSignal = ~tanhFunction.value;
-			// ~outputSignal = MidEQ.ar(in: ~~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
+			// ~outputSignal = MidEQ.ar(in: ~tanhFunction.value, freq: ~tone, rq: ~rq, db: ~db);
 		}, {
 			~outputSignal = ~foldbackFunction.value;
 		});
 	});
 });
 
+// The gain parameter change the slope of the transfer function
+
 ~k1_gain.action_({
 	arg knob;
+	// By touching this knob we are no more in one of the presets
 	~overdriveButton.value = 0;
 	~fuzzButton.value = 0;
 	~distorsionButton.value = 0;
+	// Now we have to recalculate the output signal according to the new gain paramenter
 	~gain = knob.value;
 	if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 		~outputSignal = ~quadraticFunction.value;
@@ -425,6 +454,8 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 		});
 	});
 });
+
+// The tone knob change the frequency of the bell of the equalizer
 
 ~k2_tone.action_({
 	arg knob;
@@ -445,11 +476,16 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	});
 });
 
+// The threashold parameter governs the amplitude above the one the quadratic transfer function becomes quadratic and no more linear (0 means all quadratic, 1 means all linear till the clip value)
+
 ~k3_disThr.action_({
 	arg knob;
 	~overdriveButton.value = 0;
 	~fuzzButton.value = 0;
 	~distorsionButton.value = 0;
+
+	// If the selected transfer function is the quadratic one, the value is simply passed. If the linear transfer function is selected, the value of the knob and the variable is set to 1
+
 	if((~dystTypeMenu.value == 1), {~thr = knob.value;}, {
 		if(((~dystTypeMenu.value == 0)||(~dystTypeMenu.value == 2)), {knob.value = 1; ~thr = 1;}, {});
 	});
@@ -465,6 +501,8 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 		});
 	});
 });
+
+// This knob simply scale the output signal in amplitude, without changing the shape in any way
 
 ~k4_output_level.action_({
 	arg knob;
@@ -485,7 +523,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	});
 });
 
-// Styles buttons
+// Styles buttons (presets)
 
 ~overdriveButton = Button(w, Rect(30, 200, 160, 40))
         .states_([
@@ -576,6 +614,8 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 
 //Pop Up Menu - Distorsion Type
 
+// Every time the output signal have to be calculated, a little if tree is implemented in order to select the proper transfer function according to this menu and the choise of the user
+
 ~dystTypeMenu = EZPopUpMenu.new(w, Rect(366, 260, 205, 20), "CURVE TYPE", layout: \horz);
 ~dystTypeMenu.addItem(\Linear, {"Linear".postln; ~k3_disThr.doAction;});
 ~dystTypeMenu.addItem(\Quadratic, {"Quadratic".postln; ~k3_disThr.doAction;});
@@ -593,14 +633,16 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 
 // Wave scopes
 
-// For the following code I followed this example: https://subscription.packtpub.com/book/application-development/9781783289677/1/ch01lvl1sec09/scoping-signals and this updated version: https://gist.github.com/gusano/e961e0ce67b09fea80e9
+// create three buffers in order to plot with ScopeOut2 and ScopeView
 
-// create two buffer in order to plot with ScopeOut2 and ScopeView.
 ~inputBuffer = Buffer.alloc(s, 1024);
 ~outputBuffer = Buffer.alloc(s, 1024);
 ~xyBuffer = Buffer.alloc(s, 1024, 2);
+
+// In this function the gaind input signal and the output signal are re-evaluated to be passet to the ScopeOut2.ar methods. Then the output signal is routed to the selected output bus in order to be heard
+
 ~sound = {
-	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus), 1, 0);
+	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus));
 	if(((~dystTypeMenu.value == 1)||(~dystTypeMenu.value == 0)), {
 		~outputSignal = ~quadraticFunction.value;
 		// ~outputSignal = MidEQ.ar(in: ~quadraticFunction.value, freq: ~tone, rq: ~rq, db: ~db);
@@ -618,10 +660,11 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	Out.ar(~outBus, ~outputSignal);
 }.play;
 
-//By using ScopeView, we need to use buffers and ScopeOut2 -> see ScopeView examples in the search section.
+// Now we can finally use ScopeView
+
 ~inputScope = ScopeView(w,Rect(30,300,186,176)).server = s;
 ~inputScope.bufnum = ~inputBuffer.bufnum;
-~inputScope.yZoom = 0.9;
+~inputScope.yZoom = 0.9; // only to properly align the scope to the transfer function
 ~inputScope.start;
 ~xyScope = ScopeView(w,Rect(222,300,156,176)).server = s;
 ~xyScope.bufnum = ~xyBuffer.bufnum;
@@ -629,7 +672,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 ~xyScope.start;
 ~outputScope = ScopeView(w,Rect(384,300,186,176)).server = s;
 ~outputScope.bufnum = ~outputBuffer.bufnum;
-~outputScope.yZoom = 0.9;
+~outputScope.yZoom = 0.9; // only to properly align the scope to the transfer function
 ~outputScope.start;
 
 ~inputScopeName = StaticText(w,Rect(53, 435, 140, 100))
@@ -645,16 +688,22 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 .align_(\center)
 .font_(Font("Kreon", 12));
 
-// Mode Buttons
+// Play/Stop button
+
 ~playButRect = Rect(275, 260, 50, 30);
+
+// Main window mode buttons
+
+// "Tutorial" button
+
 ~tutorialButton = Button(w, Rect(30, 25, 100, 30));
 ~tutorialButton.states_([
 	["Tutorial mode", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
 	["Tutorial mode", Color.white, Color.new255(red: 47, green: 72, blue: 88, alpha: 255)],
 ]);
 ~tutorialButton.action_({|butt|
-	~playButton.value = 1;
-	~playButton.doAction;
+	~playButton.value = 1; // we need to stop the current sound...
+	~playButton.doAction; // ...
 	if (butt.value==0,
 		{
 			w.background = ~wColor2;
@@ -663,8 +712,8 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 		{
 			w.background = ~wColor;
 			~iCanDoItButton.value = 0;
-			~tutorialw.front;
-			~inputMenu.clear;
+			~tutorialw.front; // Tutorial mode explenation window
+			~inputMenu.clear; // As before we update the input selection possibilities
 			~inputMenu.items_(["Sinusoid", "Guitar mp3", "Voice mp3", "Bass mp3", "Sweet Home Alabama"]);
 			~playButton = Button(w, ~playButRect)
 			.states_([
@@ -737,7 +786,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 					)}
 				)
 			});
-			~playButton.value = 1;
+			~playButton.value = 1; // Start in "stop" mode
 			~playButton.font_(Font("Kreon", 15));
 		};
 )});
@@ -750,6 +799,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 ~tutorialText.string =
 "
                                                        TUTORIAL MODE
+
 • Choose one audio file from the 'Input Source' menu.
 • Switch between the three distorsion presets and change the parameters as you prefer.
 • When you feel comfortable, switch to the 'I can do it' mode and try to distort some of your own sounds! Have fun!";
@@ -759,10 +809,11 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	["Got It"],
 ]);
 ~gotItButton.action_({|butt|
-	// butt.value.postln;
 	if (butt.value==1,
 		{~tutorialw.close;};
 )});
+
+// "I can do it" button (analogous behaviour of the "tutorial" one)
 
 ~iCanDoItButton = Button(w, Rect(470, 25, 100, 30))
         .states_([
@@ -835,6 +886,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 ~tutorialText.string =
 "
                                                        I CAN DO IT MODE
+
 • Choose one audio input from the 'Input Source' menu.
 • Start to play and adjust the parameters to reach the desired sound. Have fun!";
 ~gotItButton2 = Button(~iCanDoItw, Rect(275, 100, 50, 20));
@@ -847,7 +899,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 		{~iCanDoItw.close;};
 )});
 
-// Window "Knob roles"
+// info window "Knob roles and Analog button"
 
 ~knobInfoButton = Button(w, Rect(30, 63, 25, 30))
         .states_([
@@ -862,8 +914,6 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 			~infow.background = Color.new255(red: 169, green: 211, blue: 134, alpha: 255);
 			~infow.alwaysOnTop = true;
 			~infos = StaticText(~infow, Rect(left: 10, top: 0, width: 300, height: 190));
-			//~infos.allign = \top;
-			//~infos.font = Font("Kreon", 9);
 			~infos.string =
 			"• INPUT KNOB: set the desired input volume.
 • GAIN KNOB: this value represent the slope of the linear portion of the transfer function.
