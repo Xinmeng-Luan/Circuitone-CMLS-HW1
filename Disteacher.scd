@@ -75,9 +75,21 @@ s.boot;
 			}
 		)
 	});
-	~tf = ~tf.tanh;
-	if((~gain == 0), {~tf = ~tf * 0;}, {}); // To reduce artifacts due to the analog option
-	~tf = ~tf * ~outGain;
+
+	// I calculate the effective tanh transfer function only if I'm listening to the output signal
+	// otherwise I'll pass the inaltered gaind input signal to the output
+
+	if((~postButton.value == 1),
+		{
+			"Output".postln;
+			~tf = ~tf.tanh;
+			if((~gain == 0), {~tf = ~tf * 0;}, {}); // To reduce artifacts due to the analog option
+			~tf = ~tf * ~outGain;
+		},
+		{
+			"Input".postln;
+		}
+	);
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
 	Shaper.ar(~myBuffer, ~gainedInputSignal);
 };
@@ -90,18 +102,26 @@ s.boot;
 	~myInBuffer.sendCollection(~inTf.asWavetableNoWrap);
 	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus));
 	~tf.waveFill({arg x, old, i; 2*x-1});
-	~tf.waveFill({arg x, old, i;
-		if((old>0),
-			{// positive
-				((~gain+~analogPos)*((~gain+~analogPos)*old).sin)*((-2)*(~gain+~analogPos)*old).exp
-			},
-			{// negative
-				((~gain+~analogNeg)*((~gain+~analogNeg)*old).sin)*(2*(~gain+~analogNeg)*old).exp;
-			}
-		)
-	});
-	if((~gain == 0), {~tf = ~tf * 0;}, {});
-	~tf = ~tf * ~outGain;
+	if((~postButton.value == 1),
+		{
+			"Output".postln;
+			~tf.waveFill({arg x, old, i;
+				if((old>0),
+					{// positive
+						((~gain+~analogPos)*((~gain+~analogPos)*old).sin)*((-2)*(~gain+~analogPos)*old).exp
+					},
+					{// negative
+						((~gain+~analogNeg)*((~gain+~analogNeg)*old).sin)*(2*(~gain+~analogNeg)*old).exp;
+					}
+				)
+			});
+			if((~gain == 0), {~tf = ~tf * 0;}, {});
+			~tf = ~tf * ~outGain;
+		},
+		{
+			"Input".postln;
+		}
+	);
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
 	Shaper.ar(~myBuffer, ~gainedInputSignal);
 };
@@ -114,40 +134,48 @@ s.boot;
 	~myInBuffer.sendCollection(~inTf.asWavetableNoWrap);
 	~gainedInputSignal = Shaper.ar(~myInBuffer, In.ar(~inputBus));
 	~tf.waveFill({arg x, old, i; 2*x-1});
-	~tf.waveFill({arg x, old, i;
-		if((old>0),
-			{// positive
-				if((old<((~thr-~analogPos)/(~gain+~analogPos))),
-					{// linear
-						old*(~gain+~analogPos)
+	if((~postButton.value == 1),
+		{
+			"Output".postln;
+			~tf.waveFill({arg x, old, i;
+				if((old>0),
+					{// positive
+						if((old<((~thr-~analogPos)/(~gain+~analogPos))),
+							{// linear
+								old*(~gain+~analogPos)
+							},
+							{if((old<((2-(~thr-~analogPos))/(~gain+~analogPos))),
+								{// quatratic
+									((((old-((2-(~thr-~analogPos))/(~gain+~analogPos))).squared)*(~gain+~analogPos)*(~gain+~analogPos))/(4*((~thr-~analogPos)-1)))+1
+								},
+								{// clip
+									1
+							})
+						})
 					},
-					{if((old<((2-(~thr-~analogPos))/(~gain+~analogPos))),
-						{// quatratic
-							((((old-((2-(~thr-~analogPos))/(~gain+~analogPos))).squared)*(~gain+~analogPos)*(~gain+~analogPos))/(4*((~thr-~analogPos)-1)))+1
-						},
-						{// clip
-							1
-					})
-				})
-			},
-			{// negative
-				if((old>((-1)*(~thr+~analogNeg)/(~gain+~analogNeg))),
-					{// linear
-						old*(~gain+~analogNeg)
-					},
-					{if((old>(((~thr+~analogNeg)-2)/(~gain+~analogNeg))),
-						{// quatratic
-							((((old-(((~thr+~analogNeg)-2)/(~gain+~analogNeg))).squared)*(~gain+~analogNeg)*(~gain+~analogNeg))/(4*(1-(~thr+~analogNeg))))-1
-						},
-						{// clip
-							-1
-					})
-				})
-			}
-		)
-	});
-	if((~gain == 0), {~tf = ~tf * 0;}, {});
-	~tf = ~tf * ~outGain;
+					{// negative
+						if((old>((-1)*(~thr+~analogNeg)/(~gain+~analogNeg))),
+							{// linear
+								old*(~gain+~analogNeg)
+							},
+							{if((old>(((~thr+~analogNeg)-2)/(~gain+~analogNeg))),
+								{// quatratic
+									((((old-(((~thr+~analogNeg)-2)/(~gain+~analogNeg))).squared)*(~gain+~analogNeg)*(~gain+~analogNeg))/(4*(1-(~thr+~analogNeg))))-1
+								},
+								{// clip
+									-1
+							})
+						})
+					}
+				)
+			});
+			if((~gain == 0), {~tf = ~tf * 0;}, {});
+			~tf = ~tf * ~outGain;
+		},
+		{
+			"Input".postln;
+		}
+	);
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
 	Shaper.ar(~myBuffer, ~gainedInputSignal);
 };
@@ -198,10 +226,7 @@ f = Font ("Kreon", 12);
 				if((butt.value == 1),
 					{
 						~postButton.value = 0;
-						~playButton.value = 1;
-						~playButton.doAction;
-						~playButton.value = 0;
-						~playButton.doAction;
+						~k0_inGain.doAction;
 					}
 				);
 			});
@@ -216,10 +241,7 @@ f = Font ("Kreon", 12);
 				if((butt.value == 1),
 					{
 						~preButton.value = 0;
-						~playButton.value = 1;
-						~playButton.doAction;
-						~playButton.value = 0;
-						~playButton.doAction;
+						~k0_inGain.doAction;
 					}
 				);
 			});
@@ -332,10 +354,7 @@ f = Font ("Kreon", 12);
 				if((butt.value == 1),
 					{
 						~postButton.value = 0;
-						~playButton.value = 1;
-						~playButton.doAction;
-						~playButton.value = 0;
-						~playButton.doAction;
+						~k0_inGain.doAction;
 					}
 				);
 			});
@@ -350,10 +369,7 @@ f = Font ("Kreon", 12);
 				if((butt.value == 1),
 					{
 						~preButton.value = 0;
-						~playButton.value = 1;
-						~playButton.doAction;
-						~playButton.value = 0;
-						~playButton.doAction;
+						~k0_inGain.doAction;
 					}
 				);
 			});
@@ -485,6 +501,9 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 
 ~k0_inGain.action_({
 	arg knob;
+	// If I'm listening to the input signal (without distortion) and I apply an input gain grater than 1, the signal could clip anyway, so we limit the input gain value to 1 if we are listening to the input signal
+	if(((~preButton.value == 1) && (knob.value > 1)),
+		{knob.value = 1}, {});
 	~inGain = knob.value;
 	// Changing the input gain we have to recalculate the gained input signal and the output one
 	~inTf.waveFill({arg x, old, i; 2*x-1});
@@ -692,11 +711,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	ScopeOut2.ar(~gainedInputSignal, ~inputBuffer); // update input buffer
     ScopeOut2.ar(~outputSignal, ~outputBuffer); // update output buffer
 	ScopeOut2.ar([~gainedInputSignal, ~outputSignal], ~xyBuffer); // update xy buffer
-	~postButton.value.postln;
-	if((~postButton.value == 1),
-		{Out.ar(~outBus, ~outputSignal);},
-		{Out.ar(~outBus, ~gainedInputSignal);}
-	);
+	Out.ar(~outBus, ~outputSignal);
 }.play;
 
 // Now we can finally use ScopeView
@@ -765,10 +780,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 				if((butt.value == 1),
 					{
 						~postButton.value = 0;
-						~playButton.value = 1;
-						~playButton.doAction;
-						~playButton.value = 0;
-						~playButton.doAction;
+						~k0_inGain.doAction;
 					}
 				);
 			});
@@ -783,10 +795,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 				if((butt.value == 1),
 					{
 						~preButton.value = 0;
-						~playButton.value = 1;
-						~playButton.doAction;
-						~playButton.value = 0;
-						~playButton.doAction;
+						~k0_inGain.doAction;
 					}
 				);
 			});
@@ -924,10 +933,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 				if((butt.value == 1),
 					{
 						~postButton.value = 0;
-						~playButton.value = 1;
-						~playButton.doAction;
-						~playButton.value = 0;
-						~playButton.doAction;
+						~k0_inGain.doAction;
 					}
 				);
 			});
@@ -942,10 +948,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 				if((butt.value == 1),
 					{
 						~preButton.value = 0;
-						~playButton.value = 1;
-						~playButton.doAction;
-						~playButton.value = 0;
-						~playButton.doAction;
+						~k0_inGain.doAction;
 					}
 				);
 			});
