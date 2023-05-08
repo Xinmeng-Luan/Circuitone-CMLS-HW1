@@ -15,6 +15,10 @@ s.boot;
 ~freq = 20;
 ~analogPos = 0;
 ~analogNeg = 0;
+~analogPosOriginal = 0;
+~analogNegOriginal = 0;
+~analogWindow = Window("Analog-digital graph", Rect(left: 325, top: 500, width: 320, height: 220));
+~freqWindow = Window("Spectra", Rect(left: 625, top: 500, width: 320, height: 220));
 
 // Example sounds load
 
@@ -45,6 +49,7 @@ s.boot;
 ~tf = Signal.newClear(513);
 ~myInBuffer = Buffer.alloc(s, 1024, 1);
 ~inTf = Signal.newClear(513);
+~digitalTf = Signal.newClear(513);
 
 // Link to the GeoGebra site to better visualize the transfer functions: https://www.geogebra.org/m/x5bhsngv
 
@@ -81,16 +86,28 @@ s.boot;
 
 	if((~postButton.value == 1),
 		{
-			"Output".postln;
 			~tf = ~tf.tanh;
 			if((~gain == 0), {~tf = ~tf * 0;}, {}); // To reduce artifacts due to the analog option
 			~tf = ~tf * ~outGain;
-		},
-		{
-			"Input".postln;
-		}
-	);
+		},{});
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
+
+	// Calculate the transfer function without the analog contribution in order to plot the difference
+
+	~digitalTf.waveFill({arg x, old, i; 2*x-1});
+	~digitalTf.waveFill({arg x, old, i; old*~gain});
+	if((~postButton.value == 1),
+		{
+			~digitalTf = ~digitalTf.tanh;
+			~digitalTf = ~digitalTf * ~outGain;
+		},{});
+
+	// ~compositeView = CompositeView(w, Rect(245, 108, 110, 80));
+	~plot = Plotter("plot", parent: ~analogWindow).value_([~tf, ~digitalTf]);
+	~plot.superpose = true;
+	~plot.plotColor_([Color.red, Color.blue]);
+	~plot.setProperties(\gridOnX, false);
+
 	Shaper.ar(~myBuffer, ~gainedInputSignal);
 };
 
@@ -104,7 +121,6 @@ s.boot;
 	~tf.waveFill({arg x, old, i; 2*x-1});
 	if((~postButton.value == 1),
 		{
-			"Output".postln;
 			~tf.waveFill({arg x, old, i;
 				if((old>0),
 					{// positive
@@ -117,12 +133,33 @@ s.boot;
 			});
 			if((~gain == 0), {~tf = ~tf * 0;}, {});
 			~tf = ~tf * ~outGain;
-		},
-		{
-			"Input".postln;
-		}
-	);
+		},{});
 	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
+
+	// Calculate the transfer function without the analog contribution in order to plot the difference
+
+	~digitalTf.waveFill({arg x, old, i; 2*x-1});
+	if((~postButton.value == 1),
+		{
+			~digitalTf.waveFill({arg x, old, i;
+				if((old>0),
+					{// positive
+						(~gain*(~gain*old).sin)*((-2)*~gain*old).exp
+					},
+					{// negative
+						(~gain*(~gain*old).sin)*(2*~gain*old).exp;
+					}
+				)
+			});
+			~digitalTf = ~digitalTf * ~outGain;
+		},{});
+
+	// ~compositeView = CompositeView(w, Rect(245, 108, 110, 80));
+	~plot = Plotter("plot", parent: ~analogWindow).value_([~tf, ~digitalTf]);
+	~plot.superpose = true;
+	~plot.plotColor_([Color.red, Color.blue]);
+	~plot.setProperties(\gridOnX, false);
+
 	Shaper.ar(~myBuffer, ~gainedInputSignal);
 };
 
@@ -136,7 +173,24 @@ s.boot;
 	~tf.waveFill({arg x, old, i; 2*x-1});
 	if((~postButton.value == 1),
 		{
-			"Output".postln;
+			// In order to avoid artifacts on the transfer function due to the analog option
+
+			if((~analogPos > (~thr/~gain)),
+				{~analogPos = (~thr/~gain)},
+				{
+					if((~analogPos < ((~thr-1)/~gain)),
+						{~analogPos = ((~thr-1)/~gain)},
+						{~analogPos = ~analogPosOriginal}
+					)
+				});
+			if((~analogNeg > ((1-~thr)/~gain)),
+				{~analogNeg = ((1-~thr)/~gain)},
+				{
+					if((~analogNeg < ((0-~thr)/~gain)),
+						{~analogNeg = ((0-~thr)/~gain)},
+						{~analogNeg = ~analogNegOriginal})
+				});
+
 			~tf.waveFill({arg x, old, i;
 				if((old>0),
 					{// positive
@@ -154,13 +208,60 @@ s.boot;
 						})
 					},
 					{// negative
-						if((old>((-1)*(~thr+~analogNeg)/(~gain+~analogNeg))),
+						if(((~gain+~analogNeg)<0),
+							{0},
+							{
+								if((old>((-1)*(~thr+~analogNeg)/(~gain+~analogNeg))),
+									{// linear
+										old*(~gain+~analogNeg)
+									},
+									{if((old>(((~thr+~analogNeg)-2)/(~gain+~analogNeg))),
+										{// quatratic
+											((((old-(((~thr+~analogNeg)-2)/(~gain+~analogNeg))).squared)*(~gain+~analogNeg)*(~gain+~analogNeg))/(4*(1-(~thr+~analogNeg))))-1
+										},
+										{// clip
+											-1
+									})
+								})
+							}
+						)
+					}
+				)
+			});
+			if((~gain == 0), {~tf = ~tf * 0;}, {});
+			~tf = ~tf * ~outGain;
+		},{});
+	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
+
+	// Calculate the transfer function without the analog contribution in order to plot the difference
+
+	~digitalTf.waveFill({arg x, old, i; 2*x-1});
+	if((~postButton.value == 1),
+		{
+			~digitalTf.waveFill({arg x, old, i;
+				if((old>0),
+					{// positive
+						if((old<(~thr/~gain)),
 							{// linear
-								old*(~gain+~analogNeg)
+								old*~gain
 							},
-							{if((old>(((~thr+~analogNeg)-2)/(~gain+~analogNeg))),
+							{if((old<((2-~thr)/~gain)),
 								{// quatratic
-									((((old-(((~thr+~analogNeg)-2)/(~gain+~analogNeg))).squared)*(~gain+~analogNeg)*(~gain+~analogNeg))/(4*(1-(~thr+~analogNeg))))-1
+									((((old-((2-~thr)/~gain)).squared)*~gain*~gain)/(4*(~thr-1)))+1
+								},
+								{// clip
+									1
+							})
+						})
+					},
+					{// negative
+						if((old>((-1)*~thr/~gain)),
+							{// linear
+								old*~gain
+							},
+							{if((old>((~thr-2)/~gain)),
+								{// quatratic
+									((((old-((~thr-2)/~gain)).squared)*~gain*~gain)/(4*(1-~thr)))-1
 								},
 								{// clip
 									-1
@@ -169,14 +270,16 @@ s.boot;
 					}
 				)
 			});
-			if((~gain == 0), {~tf = ~tf * 0;}, {});
-			~tf = ~tf * ~outGain;
+			~digitalTf = ~digitalTf * ~outGain;
 		},
-		{
-			"Input".postln;
-		}
-	);
-	~myBuffer.sendCollection(~tf.asWavetableNoWrap);
+		{});
+
+	// ~compositeView = CompositeView(w, Rect(245, 108, 110, 80));
+	~plot = Plotter("plot", parent: ~analogWindow).value_([~tf, ~digitalTf]);
+	~plot.superpose = true;
+	~plot.plotColor_([Color.red, Color.blue]);
+	~plot.setProperties(\gridOnX, false);
+
 	Shaper.ar(~myBuffer, ~gainedInputSignal);
 };
 
@@ -428,7 +531,7 @@ w = Window("Distorsion", ~wRect, false);
 ~wColor2 = Color.new255(red: 255, green: 165, blue: 0, alpha: 255);
 w.background = ~wColor;
 w.alwaysOnTop = true;
-~effectName = StaticText(w,Rect(150, 15, 300, 50))
+~effectName = StaticText(w,Rect(150, 5, 300, 50))
 .string_("DISTEACHER")
 .align_(\center)
 .font_(Font("Kreon", 40));
@@ -458,7 +561,7 @@ w.onClose = {(
 
 // Every time you select the analog mode, two new random nombers are added to the gain value in the transfer function, one to the positive part and the other to the negative part, in order to simulate the behaviour of a more realistic analog circuit
 
-~analogButton = Button(w, Rect(260, 100, 80, 40))
+~analogButton = Button(w, Rect(260, 80, 80, 40))
         .states_([
             ["Analog", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
             ["Analog", Color.white, Color.new255(red: 47, green: 72, blue: 88, alpha: 255)],
@@ -467,16 +570,23 @@ w.onClose = {(
 ~analogButton.action_({|butt|
 	if ((butt.value==1),
 		{
-			~analogPos = (1.0.rand.round(0.01)-1.0.rand.round(0.01))*0.1*~gain;
-			~analogNeg = (1.0.rand.round(0.01)-1.0.rand.round(0.01))*0.1*~gain;
+			~analogPos = 0.2+((1.0.bilinrand)*~gain*0.1).round(0.001);
+			~analogNeg = -0.2+((1.0.bilinrand)*~gain*0.1).round(0.001);
+			~analogPosOriginal = ~analogPos;
+			~analogNegOriginal = ~analogNeg;
+			("~analogPos:"+~analogPos).postln;
+			("~analogNeg:"+~analogNeg).postln;
 			~k0_inGain.doAction; // To recalculate the current transfer function
 		},
 		{
 			~analogPos = 0;
 			~analogNeg = 0;
+			~analogPosOriginal = ~analogPos;
+			~analogNegOriginal = ~analogNeg;
 			~k0_inGain.doAction; // To recalculate the current transfer function
 		}
-)});
+	);
+});
 
 // Knobs
 
@@ -801,6 +911,8 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 			});
 			~postButton.font_(Font("Kreon", 15));
 
+			~postButton.value = 1;
+
 			~playButton = Button(w, ~playButRect)
 			.states_([
 				["Stop", Color.white, Color.new255(red: 111, green: 69, blue: 34, alpha: 255)],
@@ -954,6 +1066,8 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 			});
 			~postButton.font_(Font("Kreon", 15));
 
+			~postButton.value = 1;
+
 			~playButton = Button(w, ~playButRect)
 			.states_([
 				["Stop", Color.white, Color.new255(red: 111, green: 69, blue: 34, alpha: 255)],
@@ -1028,10 +1142,11 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 ~knobInfoButton.action_({|butt|
 	if (butt.value==1,
 		{
-			~infow = Window("Knobs roles", Rect(left: 325, top: 500, width: 320, height: 200), false);
+			~infow = Window("Knobs roles", Rect(left: 325, top: 500, width: 420, height: 300), false);
 			~infow.background = Color.new255(red: 169, green: 211, blue: 134, alpha: 255);
 			~infow.alwaysOnTop = true;
-			~infos = StaticText(~infow, Rect(left: 10, top: 0, width: 300, height: 170));
+			~infos = StaticText(~infow, Rect(left: 10, top: 0, width: 400, height: 270));
+			~infos.font = Font(nil, 13);
 			~infos.string =
 			"• INPUT KNOB: set the desired input volume.
 • GAIN KNOB: this value represent the slope of the transfer function.
@@ -1039,9 +1154,11 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
     0 --> only quadratic shape
     1 --> only linear shape (clipper)
 • OUTPUT KNOB: set the desired output volume.
-• ANALOG BUTTON: introduce asymmetrical behaviours in the transfer function, typical of real analogue circuits.";
+• ANALOG BUTTON: introduce asymmetrical behaviours in the transfer function, typical of real analogue circuits.
+• ANALOG GRAPH: it opens a plot in which you can see in blu the clean, digital transfer function, in red the one with the analog behaviour applied.
+• SPECTRA: it opens a frequency spectrum analyzer, so you can see what you are listening also in the frequency domain. (By changing the number of the bus to 5 you can view the input signal)";
 			~infow.front;
-			~gotItButton = Button(~infow, Rect(135, 172, 50, 20));
+			~gotItButton = Button(~infow, Rect(185, 272, 50, 20));
 			~gotItButton.states_([
 				["Got It"],
 				["Got It"],
@@ -1051,5 +1168,34 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 					{~knobInfoButton.value = 0; ~infow.close;};
 		)})}
 )});
+
+// Analog window
+
+~showAnalogButton = Button(w, Rect(260, 125, 80, 25))
+.states_([
+	["Show graph", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
+	["Show graph", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
+]);
+~showAnalogButton.font = (Font("Kreon", 12));
+~showAnalogButton.action_({|butt|
+	~analogWindow = Window("Analog-digital graph", Rect(left: 325, top: 500, width: 320, height: 220));
+	~analogWindow.background = Color.new255(red: 169, green: 211, blue: 134, alpha: 255);
+	~analogWindow.alwaysOnTop = true;
+	~analogWindow.front;
+	~k1_gain.doAction;
+	~analogWindow.onClose = {~showAnalogButton.value = 0};
+});
+
+// Input/Output freqScope windows
+
+~showFreqButton = Button(w, Rect(520, 63, 50, 30))
+.states_([
+	["Spectra", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
+	["Spectra", Color.white, Color.new255(red: 69, green: 111, blue: 34, alpha: 255)],
+]);
+~showFreqButton.font = (Font("Kreon", 12));
+~showFreqButton.action_({|butt|
+	FreqScope.new(width: 500, height: 220, busNum: 0, scopeColor: ~wColor, bgColor: Color.black, server: s); // busNum: 5 to view the input signal
+});
 
 )
