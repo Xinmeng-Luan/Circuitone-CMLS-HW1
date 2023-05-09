@@ -1182,7 +1182,7 @@ o = ControlSpec.new(minval: 0.0, maxval: 2.0);
 	~analogWindow.background = Color.new255(red: 169, green: 211, blue: 134, alpha: 255);
 	~analogWindow.alwaysOnTop = true;
 	~analogWindow.front;
-	~k1_gain.doAction;
+	~k0_inGain.doAction;
 	~analogWindow.onClose = {~showAnalogButton.value = 0};
 });
 
